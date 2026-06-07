@@ -17,7 +17,7 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
-        cache: maven # This automatically caches the ~/.m2/repository folder
+        cache: maven 
         
     - name: Resolve and Cache Dependencies
       run: mvn dependency:resolve
@@ -25,7 +25,22 @@ jobs:
     - name: Build with Maven
       run: mvn compile
 
-    # 2. Install Trivy
+  security-check:
+    runs-on: ubuntu-latest
+    needs: build-and-check 
+    steps: 
+    - uses: actions/checkout@v4
+
+    - name: Set up JDK 17 (for Cache access)
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+
+    - name: Prefetch Dependencies from Cache
+      run: mvn dependency:resolve
+
     - name: Trivy Installation
       run: |
         sudo apt-get update && sudo apt-get install -y wget gnupg
@@ -35,7 +50,9 @@ jobs:
 
     - name: Trivy Fs Scan
       run: trivy fs --format table -o fs-report.json .
+
     - name: GitLeaks installation
       run: sudo apt install gitleaks -y
+
     - name: GitLeaks Code Scan
       run: gitleaks detect source . -r gitleaks-report.json -f json
