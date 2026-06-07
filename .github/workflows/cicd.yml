@@ -43,6 +43,7 @@ jobs:
       
     - name: Trivy Installation
       run: |
+        # 1. Configure the Trivy RPM Repository for Amazon Linux
         sudo tee /etc/yum.repos.d/trivy.repo << 'EOF'
         [trivy]
         name=Trivy repository
@@ -52,6 +53,7 @@ jobs:
         gpgkey=https://aquasecurity.github.io/trivy-repo/rpm/public.key
         EOF
         
+        # 2. Install Trivy using dnf
         sudo dnf install -y trivy
         
     - name: Trivy Fs Scan
@@ -59,9 +61,66 @@ jobs:
       
     - name: GitLeaks installation
       run: |
+        # GitLeaks isn't in default AL2023 repos, so we pull the standalone binary directly
         wget https://github.com/gitleaks/gitleaks/releases/download/v8.18.2/gitleaks_8.18.2_linux_x64.tar.gz
         tar -xf gitleaks_8.18.2_linux_x64.tar.gz
         sudo mv gitleaks /usr/local/bin/
         
     - name: GitLeaks Code Scan
       run: gitleaks detect --source . -r gitleaks-report.json -f json
+
+  test:
+    runs-on: self-hosted
+    needs: security-check
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+             
+    - name: Resolve and Cache Dependencies
+      run: mvn dependency:resolve
+      
+    - name: Build with Test
+      run: mvn test
+
+  build-with-scan:
+    runs-on: self-hosted
+    needs: test
+    steps:
+    # Changed to v4 to match your other checkout steps, with full history enabled for SonarQube accuracy
+    - uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+    
+    - name: Set up JDK 17
+      uses: actions/setup-java@v4
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        cache: maven
+             
+    - name: Resolve and Cache Dependencies
+      run: mvn dependency:resolve
+      
+    - name: Build Project
+      run: mvn package
+
+    - name: SonarQube Scan
+      uses: SonarSource/sonarqube-scan-action@v4.1.0
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ vars.SONAR_HOST_URL }}
+
+    - name: SonarQube Quality Gate check
+      id: sonarqube-quality-gate-check
+      uses: sonarsource/sonarqube-quality-gate-action@master
+      with:
+        pollingTimeoutSec: 600
+      env:
+        SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+        SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }} #OPTIONAL
